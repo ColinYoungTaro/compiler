@@ -1,0 +1,10 @@
+int main() {
+
+  int a[5] = {1, 2, 3, 5};
+  a[2] = 1;
+  printInt(a[2]);
+  printLn();
+  printInt(a[3]);
+  printLn();
+  return a[1] == 0;
+}
