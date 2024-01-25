@@ -1,0 +1,24 @@
+int fibonacci(int n) {
+  if(n == 1 || n == 2) {
+    return 1;
+  }
+  int a = 1, b = 2;
+  int c = 0;
+  int index = 2;
+  while(1) {
+    c = a + b;
+    a = b;
+    b = c;
+    index = index + 1;
+    if(index >= n) {
+      break;
+    }
+  }
+  return c;
+}
+int main() {
+  int x;
+  x = getInt();
+  printInt(fibonacci(x));
+  printLn();
+}
