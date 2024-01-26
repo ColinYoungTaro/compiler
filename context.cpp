@@ -3,11 +3,9 @@
 
 CodeGenContext *ctx;
 
-void logError(const std::string& logInfo) {
+void logError(const std::string &logInfo) {
   // llvm::errs() << logInfo << "\n";
   throw logInfo;
 }
 
-void logWarning(const std::string& logInfo) {
-  errs() << logInfo << "\n";
-}
+void logWarning(const std::string &logInfo) { errs() << logInfo << "\n"; }

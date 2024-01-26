@@ -76,12 +76,12 @@
 //   FunctionType *FT = FunctionType::get(
 //     Type::getInt32Ty(getContext()), false);
 //   auto& identifier = funcDef->ident;
-//   Function *F = Function::Create(FT, Function::ExternalLinkage, identifier, *theModule);  
-//   if(F->getName() != identifier) {
+//   Function *F = Function::Create(FT, Function::ExternalLinkage, identifier,
+//   *theModule); if(F->getName() != identifier) {
 //     F->eraseFromParent();
 //     F = theModule->getFunction(identifier);
 //   }
-  
+
 //   BasicBlock *BB = BasicBlock::Create(getContext(), "main", F);
 //   builder->SetInsertPoint(BB);
 //   funcDef->block->accept(*this);
@@ -103,7 +103,6 @@
 //   Value* expr = value;
 //   builder->CreateRet(expr);
 // }
-
 
 // void CodeGenVisitor::visit(UnaryExprAST* unaryExpr) {
 //   unaryExpr->expr->accept(*this);

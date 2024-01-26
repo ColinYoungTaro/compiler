@@ -29,16 +29,17 @@ int main(int argc, const char *argv[]) {
   assert(!ret);
 
   ctx = new CodeGenContext();
-  auto& context = ctx->getContextRef();
-  std::vector<Type*> printf_arg_types;
-  printf_arg_types.push_back(Type::getInt32Ty(context)); //printf要求的参数类型
-  FunctionType* printf_type = FunctionType::get(Type::getVoidTy(context), printf_arg_types, true);
+  auto &context = ctx->getContextRef();
+  std::vector<Type *> printf_arg_types;
+  printf_arg_types.push_back(Type::getInt32Ty(context)); // printf要求的参数类型
+  FunctionType *printf_type =
+      FunctionType::get(Type::getVoidTy(context), printf_arg_types, true);
   ctx->theModule->getOrInsertFunction("printInt", printf_type);
 
   // 插入对runtime中函数的声明
-  FunctionType* scanf_type = FunctionType::get(Type::getInt32Ty(context), true);
+  FunctionType *scanf_type = FunctionType::get(Type::getInt32Ty(context), true);
   ctx->theModule->getOrInsertFunction("getInt", scanf_type);
-  FunctionType* printLnTy = FunctionType::get(Type::getVoidTy(context), true);
+  FunctionType *printLnTy = FunctionType::get(Type::getVoidTy(context), true);
   ctx->theModule->getOrInsertFunction("printLn", printLnTy);
   try {
     // ast->dump();
@@ -47,7 +48,7 @@ int main(int argc, const char *argv[]) {
 
   } catch (std::string e) {
     errs() << e << "\n";
-  } 
+  }
   delete ctx;
   return 0;
 }

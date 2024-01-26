@@ -11,7 +11,6 @@
 
 #include "ast.h"
 
-
 using namespace llvm;
 
 class CodeGenVisitor : public AstVisitor {
@@ -27,7 +26,7 @@ public:
   }
 
   LLVMContext &getContext() const { return theModule->getContext(); }
-  Module& getModule() const {return *theModule;}
+  Module &getModule() const { return *theModule; }
 
   void visit(BaseAST *) override;
   void visit(BinaryExprAST *) override;
@@ -39,4 +38,4 @@ public:
   void visit(FuncTypeAST *) override;
   void visit(StmtAST *) override;
   void visit(NumberAST *) override;
-}; 
+};
