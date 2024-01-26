@@ -31,9 +31,9 @@ void append_front(RawAstPtrList<T>* list, T* item) {
 }
 
 template<typename T, typename K>
-void copyList(ElmList<T>& target, AstRawAstPtrList<K>* list) {
-  for(K* ptr: list) {
-    target->push_back(unique_ptr<T>(ptr));
+void copyList(ElmList<T>& target, RawAstPtrList<K>* list) {
+  for(auto ptr: *list) {
+    target.push_back(unique_ptr<T>(ptr));
   }
 }
 
@@ -58,6 +58,9 @@ void copyList(ElmList<T>& target, AstRawAstPtrList<K>* list) {
   RawAstPtrList<DeclAST> *decl_list;
   StmtAST* stmt_val;
   ExprAST* expr_val;
+  RawAstPtrList<ExprAST> *expr_list;
+
+  LValAST* left_val;
   
   std::string *str_val;
   int int_val;
@@ -71,7 +74,7 @@ void copyList(ElmList<T>& target, AstRawAstPtrList<K>* list) {
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
 %token CONST INT VOID RETURN 
-%token ADD SUB MUL DIV MOD NOT EQ LT GT DOT
+%token ADD SUB MUL DIV MOD NOT EQ LT GT DOT INC DEC
 %token L_OR L_AND
 
 %token IF ELSE FOR WHILE CONTINUE BREAK 
@@ -83,18 +86,23 @@ void copyList(ElmList<T>& target, AstRawAstPtrList<K>* list) {
 // 非终结符的类型定义
 
 %type <type_val> BType FuncType
-%type <ast_val> FuncDef Block CompElm
+%type <ast_val> FuncDef Block CompElm 
 %type <decl_list> ConstDefList VarDefList ArgList
-%type <decl_val> ConstDef VarDef Arg
-%type <item_list> BlockItemList RArgList CompElmList CompUnit NonEmptyRArgList
+%type <decl_val> ConstDef VarDef Arg 
+%type <item_list> BlockItemList  CompElmList CompUnit  
+%type <expr_list> ExpList NonEmptyExpList 
 %type <ast_val> BlockItem
 
-%type <ast_val> Stmt OpenStmt CloseStmt SimpleStmt
+%type <expr_val> OptionalExp
+%type <ast_val> OptionalAssign
+%type <ast_val> Stmt OpenStmt CloseStmt SimpleStmt AssignStmt
 
 %type <ast_val> Decl VarDecl ConstDecl  
-%type <expr_val> Exp PrimaryExp Number ConstInitVal InitialVal LVal
+%type <expr_val> Exp PrimaryExp Number ConstInitVal InitialVal 
+%type <left_val> LVal
 %type <expr_val> UnaryExp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <op>  CompOp UnaryOp EqOp AddOp MulOp
+
 
 %%
 
@@ -273,16 +281,44 @@ CloseStmt
     while_stmt->loop_stmt = unique_ptr<BaseAST>($5);
     $$ = while_stmt;
   }
+  | FOR '(' OptionalAssign ';' OptionalExp ';' OptionalAssign ')' CloseStmt {
+    auto for_stmt = new ForStmtAST();
+    if($3) {
+      for_stmt->init_stmt = unique_ptr<BaseAST>($3);
+    }
+    if($5) {
+      for_stmt->cmp_stmt = unique_ptr<ExprAST>($5);
+    }
+    if($7) {
+      for_stmt->inc_stmt = unique_ptr<BaseAST>($7);
+    }
+    for_stmt->loop_stmt = unique_ptr<BaseAST>($9);
+    $$ = for_stmt;
+  }
   | SimpleStmt {
     $$ = $1;
   }
 
+OptionalExp
+  : Exp {
+    $$ = $1;
+  }
+  | {
+    $$ = nullptr;
+  }
+  ;
+
+OptionalAssign
+  : AssignStmt {
+    $$ = $1;
+  }
+  | {
+    $$ = nullptr;
+  }
+
 SimpleStmt
-  : IDENT '=' Exp ';' {
-    auto assign = new AssignAST();
-    assign->ident = *unique_ptr<std::string>($1);
-    assign->expr = unique_ptr<ExprAST>($3);
-    $$ = assign;
+  : AssignStmt ';' {
+    $$ = $1;
   }
   | RETURN Exp ';' {
     auto stmt = new RetStmtAST();
@@ -311,10 +347,25 @@ SimpleStmt
   }
   ;
 
+AssignStmt
+  : LVal '=' Exp {
+    auto assign = new AssignAST();
+    assign->left_val = unique_ptr<LValAST>($1);
+    assign->left_val->is_left = true;
+    assign->right_val = unique_ptr<ExprAST>($3);
+    $$ = assign;
+  }
+
 LVal
   : IDENT {
     auto l_val = new LValAST();
     l_val->ident = *unique_ptr<std::string>($1);
+    $$ = l_val;
+  }
+  | IDENT '[' Exp ']' {
+    auto l_val = new ArrayDerefAST();
+    l_val->ident = *unique_ptr<std::string>($1);
+    l_val->offset = unique_ptr<ExprAST>($3);
     $$ = l_val;
   }
 
@@ -382,6 +433,14 @@ ConstDef
     const_decl->ident = *unique_ptr<std::string>($1);
     $$ = const_decl;
   }
+  | IDENT '[' Exp ']' '=' '{' ExpList '}' {
+    auto const_arr_decl = new ArrayDeclAST();
+    copyList(const_arr_decl->initializer, $7);
+    const_arr_decl->isConst = true;
+    const_arr_decl->ident = *unique_ptr<std::string>($1);
+    const_arr_decl->arr_size = unique_ptr<ExprAST>($3);
+    $$ = const_arr_decl;
+  }
   ;
 
 VarDef
@@ -399,7 +458,20 @@ VarDef
     val_decl->ident = *unique_ptr<std::string>($1);
     $$ = val_decl;
   }
-  | IDENT '[' ConstExp ']'
+  | IDENT '[' ConstExp ']' {
+    auto arr_decl = new ArrayDeclAST();
+    arr_decl->ident = *unique_ptr<std::string>($1);
+    arr_decl->arr_size = unique_ptr<ExprAST>($3);
+    $$ = arr_decl;
+  }
+  | IDENT '[' ConstExp ']' '=' '{' ExpList '}' {
+    auto arr_decl = new ArrayDeclAST();
+    arr_decl->ident = *unique_ptr<std::string>($1);
+    arr_decl->arr_size = unique_ptr<ExprAST>($3);
+    auto& expr_list = arr_decl->initializer;
+    copyList(expr_list, $7);
+    $$ = arr_decl;
+  }
   ;
 
 ConstInitVal
@@ -419,7 +491,6 @@ ConstExp
     $$ = $1;
   }
   ;
-
 
 Exp
   : LOrExp { $$ = $1; }
@@ -446,13 +517,13 @@ UnaryExp
   : PrimaryExp {
     $$ = $1;
   }
-  | IDENT '(' RArgList ')' {
+  | IDENT '(' ExpList ')' {
     auto call_expr = new CallExprAST();
     call_expr->ident = *unique_ptr<std::string>($1);
-    auto r_arg_list = unique_ptr<RawAstPtrList<BaseAST>>($3);
+    auto r_arg_list = unique_ptr<RawAstPtrList<ExprAST>>($3);
 
     for(auto r_arg: *r_arg_list) {
-      call_expr->r_arg_list.push_back(unique_ptr<BaseAST>(r_arg));
+      call_expr->r_arg_list.push_back(unique_ptr<ExprAST>(r_arg));
     }
     $$ = call_expr;
   }
@@ -464,21 +535,21 @@ UnaryExp
   }
   ;
 
-RArgList
-  : NonEmptyRArgList {
+ExpList
+  : NonEmptyExpList {
     $$ = $1;
   }
   | {
-    $$ = new RawAstPtrList<BaseAST>();
+    $$ = new RawAstPtrList<ExprAST>();
   }
 
-NonEmptyRArgList
-  : Exp ',' RArgList {
+NonEmptyExpList
+  : Exp ',' NonEmptyExpList {
     $$ = $3;
     $$->push_front($1);
   }
   | Exp {
-    $$ = new RawAstPtrList<BaseAST>();
+    $$ = new RawAstPtrList<ExprAST>();
     $$->push_front($1);
   }
 

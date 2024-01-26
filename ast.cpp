@@ -5,6 +5,7 @@
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Instruction.h"
@@ -81,7 +82,6 @@ Value *FuncDefAST::codeGen() {
   }
   verifyFunction(*F);
   ctx->enterNewScope();
-
   BasicBlock *BB =
       BasicBlock::Create(ctx->getContextRef(), identifier + ".entry", F);
   ctx->builder->SetInsertPoint(BB);
@@ -90,7 +90,7 @@ Value *FuncDefAST::codeGen() {
     DeclAST *decl = (DeclAST *)arg.get();
     F->getArg(index)->setName(decl->ident);
     Value *var = decl->codeGen();
-    ctx->setSymbol(decl->ident, var);
+    // ctx->setSymbol(decl->ident, var);
     ctx->builder->CreateStore(F->getArg(index++), var);
   }
   this->block->codeGen();
@@ -127,6 +127,11 @@ Value *RetStmtAST::codeGen() {
   Value *retVal;
   if (this->ret_expr) {
     auto *retExpr = this->ret_expr->codeGen();
+    if(retExpr->getType() != parent->getReturnType()) {
+      retExpr = ctx->builder->CreateCast(
+        llvm::Instruction::SExt,
+        retExpr, parent->getReturnType());
+    }
     retVal = ctx->builder->CreateRet(retExpr);
   } else {
     retVal = ctx->builder->CreateRet(nullptr);
@@ -202,7 +207,7 @@ Value *BinaryExprAST::codeGen() {
             ctx->builder->CreateCast(Instruction::CastOps::SExt, rand, cmpType);
       }
       rand =
-          ctx->builder->CreateICmpNE(rand, ConstantInt::get(cmpType, 0), "ror");
+          ctx->builder->CreateICmpNE(rand, ConstantInt::get(cmpType, 0), "rand");
 
       ctx->builder->CreateStore(rand, result);
       ctx->builder->CreateBr(merge);
@@ -317,12 +322,12 @@ Value *DeclAST::codeGen() {
       globalVariable->setInitializer(ConstantInt::get(allocTy, 0));
     }
 
-    ctx->setSymbol(ident, globalVariable);
+    ctx->createSymbol(ident, globalVariable);
     return globalVariable;
   }
 
   Value *allocaInst = ctx->builder->CreateAlloca(allocTy);
-  ctx->setSymbol(identifier, allocaInst, this->isConst);
+  ctx->createSymbol(identifier, allocaInst, this->isConst);
   if (this->expr) {
     Value *llvmExpr = this->expr->codeGen();
     ctx->builder->CreateStore(llvmExpr, allocaInst);
@@ -331,34 +336,40 @@ Value *DeclAST::codeGen() {
 }
 
 llvm::Value *AssignAST::codeGen() {
-  std::string varName = this->ident;
-  auto *var = ctx->getSymbol(varName);
-
-  if (!var) {
-    logError("value named: " + varName + " not declared in this scope.");
-    return nullptr;
+  auto *var = ctx->getSymbol(left_val->ident);
+  if(!var) {
+    logError("value is not declared" + left_val->ident );
   }
   if (var->isConst) {
     logError("Invalid assignment: can't assign an expr to a const.");
   }
-  Value *e = this->expr->codeGen();
-  if (e->getType()->getTypeID() == Type::VoidTyID) {
+  auto* leftValObj = this->left_val->codeGen();
+  auto* rightValObj = this->right_val->codeGen();
+  if (rightValObj->getType()->getTypeID() == Type::VoidTyID) {
     logError("Cannot assign a void return value");
   }
-  return ctx->builder->CreateStore(e, var->value);
+  return ctx->builder->CreateStore(rightValObj, leftValObj);
 }
 
 Value *LValAST::codeGen() {
+  Value *value = getSymbolValue();
+  if(!value) {
+    return nullptr;
+  }
+  if(is_left) {
+    return value;
+  } else {
+    return ctx->builder->CreateLoad(value);
+  }
+}
+
+Value* VarRefAST::getSymbolValue() {
   Symbol *symbol = ctx->getSymbol(ident);
   if (!symbol) {
     logError("Undefined variable: " + ident + ".");
     return nullptr;
   }
-	if(ctx->isInGlobalScope()) {
-		return symbol->value;
-	}
-  Value *loadInst = ctx->builder->CreateLoad(symbol->value);
-  return loadInst;
+	return symbol->value;
 }
 
 llvm::Value *IfStmtAST::codeGen() {
@@ -422,6 +433,57 @@ llvm::Value *WhileStmtAST::codeGen() {
   return nullptr;
 }
 
+llvm::Value *ForStmtAST::codeGen() {
+
+  Function *parentFunction = ctx->builder->GetInsertBlock()->getParent();
+  auto *header =
+      BasicBlock::Create(ctx->getContextRef(), "loop.header", parentFunction);
+  auto *body =
+      BasicBlock::Create(ctx->getContextRef(), "loop.body", parentFunction);
+
+  auto *exit =
+      BasicBlock::Create(ctx->getContextRef(), "loop.exit", parentFunction);
+
+  if(this->init_stmt) {
+    init_stmt->codeGen();
+  }
+
+  ctx->builder->CreateBr(header);
+  ctx->builder->SetInsertPoint(header);
+
+  ctx->builder->SetInsertPoint(header);
+  Value *condition = nullptr;
+  if(this->cmp_stmt) {
+    condition = cmp_stmt->codeGen();
+  }
+
+  if(condition) {
+    if (condition->getType() != Type::getInt1Ty(ctx->getContextRef())) {
+      condition = ctx->builder->CreateICmpNE(
+          condition, ConstantInt::get(condition->getType(), 0), "loop-cond");
+    }
+    ctx->builder->CreateCondBr(condition, body, exit);
+  } else {
+    ctx->builder->CreateBr(body);
+  }
+  ctx->builder->SetInsertPoint(body);
+
+  ctx->enterLoop(header, exit);
+  this->loop_stmt->codeGen();
+  ctx->exitLoop();
+  if(this->inc_stmt) {
+    auto *inc =
+    BasicBlock::Create(ctx->getContextRef(), "loop.inc", parentFunction);
+    ctx->builder->CreateBr(inc);
+    ctx->builder->SetInsertPoint(inc);
+    this->inc_stmt->codeGen();
+  }
+  ctx->builder->CreateBr(header);
+
+  ctx->builder->SetInsertPoint(exit);
+  return nullptr;
+}
+
 llvm::Value *BreakStmtAST::codeGen() {
   if (auto frame = ctx->getCurrentLoop()) {
     auto *exit = frame->second;
@@ -448,7 +510,6 @@ llvm::Value *ContinueStmtAST::codeGen() {
   return nullptr;
 }
 
-llvm::Value *ForStmtAST::codeGen() { return BaseAST::codeGen(); }
 llvm::Value *CallExprAST::codeGen() {
   std::vector<Value *> rargs;
   for (auto &expr : this->r_arg_list) {
@@ -461,4 +522,72 @@ llvm::Value *CallExprAST::codeGen() {
   }
   auto call_expr = ctx->builder->CreateCall(func, rargs);
   return call_expr;
+}
+
+llvm::Value * ArrayDeclAST::codeGen() {
+  auto size = this->arr_size->codeGen();
+  if(!isa<ConstantInt>(size)) {
+    logError("array should be allocated with constant-size.");
+    return nullptr;
+  }
+  ConstantInt *const_size = dyn_cast<ConstantInt>(size);
+  auto int_size = const_size->getSExtValue();
+  if(int_size <= 0) {
+    logError("array size should be larger than 0");
+    return nullptr;
+  }
+  auto elmTy = getLLVMType(ctx->getContextRef(), this->type);
+  auto arrTy = ArrayType::get(elmTy, int_size);
+  Value *allocation = nullptr;
+  llvm::ConstantAggregateZero *zeroInitializer = llvm::ConstantAggregateZero::get(arrTy);
+
+  if(ctx->isInGlobalScope()) {
+    ctx->theModule->getOrInsertGlobal(ident, arrTy);
+    GlobalVariable *gArr = ctx->theModule->getNamedGlobal(ident);
+    gArr->setLinkage(GlobalVariable::ExternalLinkage);
+    gArr->setInitializer(zeroInitializer);
+    allocation = gArr;
+  } else {
+    allocation = ctx->builder->CreateAlloca(arrTy);
+  }
+
+  if(this->initializer.size() > int_size) {
+    logError("initializer length is too long");
+    return nullptr;
+  }
+  int index = 0;
+  auto zero = ConstantInt::get(getLLVMType(ctx->getContextRef(), Int), 0);
+  if(!initializer.empty()  && ctx->isInGlobalScope()) {
+    logError("Not support to initialize an global array");
+  }
+  for(auto& const_expr: initializer) {
+    auto* val = const_expr->codeGen();
+    auto* literal = dyn_cast<ConstantInt>(val);
+    if(!literal) {
+      logError("must initialize an array with constant values.");
+      return nullptr;
+    }
+    auto offset = ConstantInt::get(getLLVMType(ctx->getContextRef(), Int), index);
+    auto *gep = ctx->builder->CreateGEP(allocation, {zero, offset});
+    ctx->builder->CreateStore(val, gep);
+    ++index;
+  }
+  ctx->setSymbol(ident, allocation);
+  return allocation;
+}
+
+// llvm::Value * ArrayInitAST::codeGen() {
+
+// }
+
+llvm::Value * ArrayDerefAST::codeGen() {
+  auto *base = getSymbolValue();
+  auto offset = this->offset->codeGen();
+  auto zero = ConstantInt::get(getLLVMType(ctx->getContextRef(), Int), 0);
+  auto *gep = ctx->builder->CreateGEP(base, {zero, offset});
+  if(is_left) {
+    return gep;
+  } else {
+    return ctx->builder->CreateLoad(gep);
+  }
 }

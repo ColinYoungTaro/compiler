@@ -1,0 +1,48 @@
+int arr[10];
+
+
+void printArr() {
+  int i = 0;
+  for(i = 0; i < 10 ; i = i + 1 ) {
+    printInt(arr[i]);
+  }
+  printLn();
+}
+
+void quickSort(int l, int r) {
+
+  if( l > r ) {
+    return;
+  }
+
+  int i = l;
+  int j = r;
+  int key = arr[l];
+
+  while ( i < j ) {
+    while( i < j && arr[j] >= key) { j = j - 1; }
+    while( i < j && arr[i] <= key) { i = i + 1; }
+    if( i < j ) {
+      int t = arr[j];
+      arr[j] = arr[i];
+      arr[i] = t;
+    }
+  }
+  
+  arr[l] = arr[i];
+  arr[i] = key;
+  quickSort(l, i-1);
+  quickSort(i+1, r);
+}
+
+
+int main() {
+  int i = 0;
+  for(; i < 10; i = i + 1) {
+    arr[i] = 10 - i;
+  }
+  printArr();
+  quickSort(0, 9);
+  printArr();
+  return 1;
+}

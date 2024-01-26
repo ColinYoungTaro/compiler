@@ -71,6 +71,8 @@ StrLiteral    \"[^\"]*\"
 "&&"            { return L_AND; }
 "||"            { return L_OR; }
 "."             { return DOT; }
+"++"            { return INC; }
+"--"            { return DEC; }
 
 .               { return yytext[0]; }
 

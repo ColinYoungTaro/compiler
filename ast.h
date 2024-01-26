@@ -164,9 +164,15 @@ public:
   Value *codeGen() override;
 };
 
-class LValAST: public ExprAST {
+class VarRefAST: public ExprAST {
 public:
+  Value* getSymbolValue();
   std::string ident;
+};
+
+class LValAST: public VarRefAST {
+public:
+  bool is_left = false;
   void dump(std::ostream &out) const override { out << " " << ident << " "; }
   Value *codeGen() override;
 };
@@ -197,8 +203,8 @@ public:
 class AssignAST: public StmtAST {
 
 public:
-  std::string ident;
-  std::unique_ptr<ExprAST> expr;
+  std::unique_ptr<LValAST> left_val;
+  std::unique_ptr<ExprAST> right_val;
 
   llvm::Value * codeGen() override;
 };
@@ -252,7 +258,22 @@ public:
 //   std::string ident;
 //   TypeIdent type;
 // };
-class ArrayInitList: public BaseAST {
+
+class ArrayDeclAST: public DeclAST {
 public:
-  ElmList<ExprAST> initialList;
+  std::unique_ptr<ExprAST> arr_size;
+  ElmList<ExprAST> initializer;
+  llvm::Value * codeGen() override;
 };
+// class ArrayInitAST : public ExprAST {
+// public:
+  
+//   llvm::Value * codeGen() override;
+// };
+
+class ArrayDerefAST: public LValAST {
+public:
+  std::unique_ptr<ExprAST> offset;
+  Value * codeGen() override;
+};
+

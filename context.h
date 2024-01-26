@@ -54,7 +54,7 @@ public:
   std::unique_ptr<IRBuilder<>> builder;
   std::unique_ptr<Module> theModule;
   std::stack<LoopFrame> loopStack;
-  std::map<std::string, Function*> functionTable;
+  Function* currentFunction = nullptr;
 
   Value* currentFunctionRetVal;
   SymbolTableStack symbolTableStack;
@@ -74,6 +74,7 @@ public:
   void exitCurrentScope() {
     symbolTableStack.pop_back();
   }
+
   LLVMContext *getContext() {
     return ctx.get();
   }
@@ -100,6 +101,15 @@ public:
       symbolTableStack.back().emplace(name, Symbol(val, isConst));
     }
   }
+
+	void createSymbol(const std::string& name, Value* val, bool isConst = false) {
+		if(!getCurrentScopeSymbol(name)) {
+			symbolTableStack.back().emplace(name, Symbol(val, isConst));
+		} else {
+			errs() << "duplicate\n";
+		}
+	}
+
 
   Symbol* getCurrentScopeSymbol(const std::string& name) {
     if(symbolTableStack.back().count(name)) {
@@ -132,6 +142,18 @@ public:
     return this->symbolTableStack.size() == 1;
   }
 
+	void dumpStackInfo() {
+		errs() << "STAK INFO:\n";
+		for(auto& frame: symbolTableStack) {
+			for(auto& [s, v]: frame) {
+				errs() << s << " ";
+				v.value->print(errs());
+				errs() << "\n";
+			}
+			errs() << "-----------\n";
+		}
+		errs() << "\n\n";
+	}
 };
 extern CodeGenContext *ctx;
 #endif
